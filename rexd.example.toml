@@ -1,0 +1,27 @@
+[server]
+stdio = true
+http_listen = ""
+http_path = "/rpc"
+ws_path = "/ws"
+log_level = "info"
+
+[limits]
+default_timeout_ms = 30000
+hard_timeout_ms = 300000
+max_output_bytes = 1048576
+max_file_read_bytes = 1048576
+max_processes_per_session = 8
+max_concurrent_sessions = 16
+
+[security]
+allow_shell = true
+
+[[security.allowed_roots]]
+path = "/srv/myapp"
+
+[[security.allowed_roots]]
+path = "/home/deploy/projects"
+
+[audit]
+enabled = true
+path = "/var/log/rexd/audit.log"
