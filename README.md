@@ -27,6 +27,26 @@ Or with Make:
 make build
 ```
 
+## Install
+
+Latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | bash
+```
+
+Pinned version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_VERSION=v0.1.2 bash
+```
+
+Custom install dir:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_INSTALL_DIR="$HOME/.local/bin" bash
+```
+
 ## Run (stdio)
 
 ```bash

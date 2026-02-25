@@ -68,8 +68,15 @@ jobs:
           mkdir -p release
           find dist -name "*.tar.gz" -exec cp {} release/ \;
 
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum *.tar.gz > checksums.txt
+
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.tar.gz
+          files: |
+            release/*.tar.gz
+            release/checksums.txt
           generate_release_notes: true
