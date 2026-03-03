@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="${REXD_REPO:-samiralibabic/rexd}"
 VERSION="${REXD_VERSION:-}"
 INSTALL_DIR="${REXD_INSTALL_DIR:-/usr/local/bin}"
+CONFIG_PATH="${REXD_CONFIG_PATH:-/etc/rexd/config.toml}"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -98,3 +99,24 @@ fi
 
 echo "Installed: ${INSTALL_DIR}/rexd"
 echo "Run: rexd --help"
+
+EXAMPLE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/rexd.example.toml"
+CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
+
+echo
+echo "Next steps (required):"
+if [[ -f "${CONFIG_PATH}" ]]; then
+  echo "- Config found: ${CONFIG_PATH}"
+else
+  echo "- Config missing: ${CONFIG_PATH}"
+  if [[ -w "${CONFIG_DIR}" ]]; then
+    echo "  mkdir -p \"${CONFIG_DIR}\""
+    echo "  curl -fsSL \"${EXAMPLE_URL}\" -o \"${CONFIG_PATH}\""
+  else
+    echo "  sudo mkdir -p \"${CONFIG_DIR}\""
+    echo "  sudo curl -fsSL \"${EXAMPLE_URL}\" -o \"${CONFIG_PATH}\""
+  fi
+fi
+echo "- Edit config and set security.allowed_roots to your project paths."
+echo "- Start with: rexd --stdio --config ${CONFIG_PATH}"
+echo "- To update later, rerun this installer."

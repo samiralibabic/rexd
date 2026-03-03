@@ -10,7 +10,7 @@ Protocol spec: `docs/spec/rexd_v1_protocol.md`
 - Optional HTTP + WebSocket transport (`--http :8080`)
 - Session lifecycle (`session.open`, `session.info`, `session.close`)
 - Process lifecycle (`exec.start`, `exec.wait`, `exec.kill`, `exec.input`)
-- Filesystem surface (`fs.read`, `fs.write`, `fs.list`, `fs.glob`, `fs.stat`)
+- Filesystem surface (`fs.read`, `fs.write`, `fs.list`, `fs.glob`, `fs.stat`, `fs.edit`, `fs.patch`)
 - PTY extension (`pty.open`, `pty.input`, `pty.resize`, `pty.close`)
 - Event streaming (`exec.stdout`, `exec.stderr`, `exec.exit`, `pty.output`, `pty.exit`)
 - Security guardrails (allowlisted roots, configurable limits, audit logging)
@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/ins
 Pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_VERSION=v0.1.2 bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_VERSION=v0.1.3 bash
 ```
 
 Custom install dir:
@@ -46,6 +46,36 @@ Custom install dir:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_INSTALL_DIR="$HOME/.local/bin" bash
 ```
+
+## Post-install setup (required)
+
+`rexd` requires a config file with at least one `security.allowed_roots` entry. If this is missing, clients will fail to access files/commands as expected.
+
+Default config path is `/etc/rexd/config.toml`.
+
+```bash
+sudo mkdir -p /etc/rexd
+sudo curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/rexd.example.toml -o /etc/rexd/config.toml
+sudo $EDITOR /etc/rexd/config.toml
+```
+
+At minimum, update the `[[security.allowed_roots]]` paths to match the real directories you want to expose.
+
+## Updating
+
+Update the binary by rerunning the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | bash
+```
+
+If `rexd` is managed as a service, restart it after update (example):
+
+```bash
+sudo systemctl restart rexd
+```
+
+If you also use `opencode-rexd-target`, update `rexd` on remote hosts first, then update the plugin.
 
 ## Run (stdio)
 
@@ -86,6 +116,18 @@ Read file:
 
 ```json
 {"jsonrpc":"2.0","id":3,"method":"fs.read","params":{"session_id":"s_1","path":"/srv/myapp/README.md"}}
+```
+
+Edit file:
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"fs.edit","params":{"session_id":"s_1","path":"/srv/myapp/README.md","old_string":"Hello","new_string":"REXD","replace_all":false}}
+```
+
+Apply patch:
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"fs.patch","params":{"session_id":"s_1","cwd":"/srv/myapp","patch_text":"*** Begin Patch\n*** Update File: README.md\n@@\n-Hello\n+REXD\n*** End Patch"}}
 ```
 
 ## Config

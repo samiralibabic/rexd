@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -115,6 +116,66 @@ func (s *Service) Write(path string, data []byte, mode string, mkdirParents bool
 		"mtime":         st.ModTime().UnixMilli(),
 		"created":       !existed,
 	}, nil
+}
+
+func (s *Service) Edit(path, oldString, newString string, replaceAll bool, expectedMTime int64) (map[string]any, error) {
+	if oldString == newString {
+		return nil, errors.New("old_string and new_string are identical")
+	}
+
+	current := ""
+	existed := false
+	if st, err := os.Stat(path); err == nil {
+		existed = true
+		if expectedMTime > 0 && st.ModTime().UnixMilli() != expectedMTime {
+			return nil, ErrConflict
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		current = string(data)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	if !existed && expectedMTime > 0 {
+		return nil, ErrConflict
+	}
+
+	if !existed && oldString != "" {
+		return nil, errors.New("file does not exist; old_string cannot be matched")
+	}
+
+	next := ""
+	replacements := 0
+	if oldString == "" {
+		next = newString
+		replacements = 1
+	} else if replaceAll {
+		replacements = strings.Count(current, oldString)
+		if replacements == 0 {
+			return nil, errors.New("old_string not found")
+		}
+		next = strings.ReplaceAll(current, oldString, newString)
+	} else {
+		first := strings.Index(current, oldString)
+		if first == -1 {
+			return nil, errors.New("old_string not found")
+		}
+		if strings.Index(current[first+len(oldString):], oldString) != -1 {
+			return nil, errors.New("old_string matched multiple locations; set replace_all=true")
+		}
+		next = strings.Replace(current, oldString, newString, 1)
+		replacements = 1
+	}
+
+	result, err := s.Write(path, []byte(next), "replace", true, true, expectedMTime)
+	if err != nil {
+		return nil, err
+	}
+	result["replacements"] = replacements
+	return result, nil
 }
 
 func (s *Service) List(path string, recursive bool, maxEntries int) (map[string]any, error) {

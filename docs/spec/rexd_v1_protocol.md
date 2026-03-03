@@ -326,6 +326,57 @@ Stat a file or directory.
 
 ---
 
+### 10) `fs.edit`
+
+Edit a UTF-8 text file with exact string replacement.
+
+#### Request params
+- `session_id`
+- `path`
+- `old_string`
+- `new_string`
+- `replace_all` (optional, default `false`)
+- `expected_mtime` (optional; optimistic concurrency)
+
+#### Behavior
+- If `old_string` is empty, file content is replaced entirely with `new_string`.
+- If `replace_all` is `false`, `old_string` must match exactly one location.
+- If `replace_all` is `true`, all exact matches are replaced.
+
+#### Response
+- `path`
+- `bytes_written`
+- `mtime`
+- `created` (boolean)
+- `replacements` (int)
+
+---
+
+### 11) `fs.patch`
+
+Apply an `apply_patch`-style patch envelope to one or more files.
+
+#### Request params
+- `session_id`
+- `patch_text` (string, full patch body)
+- `cwd` (optional; base path for relative patch file paths)
+
+#### Supported patch format
+- `*** Begin Patch` / `*** End Patch` envelope
+- `*** Add File: <path>`
+- `*** Delete File: <path>`
+- `*** Update File: <path>`
+- optional `*** Move to: <path>` for updates
+- update chunks with `@@` and prefixed lines (` `, `-`, `+`)
+
+#### Response
+- `added` (array of paths)
+- `updated` (array of paths)
+- `deleted` (array of paths)
+- `moved` (array of `{from,to}`)
+
+---
+
 ## PTY Support (Optional v1 Extension)
 
 Needed for interactive programs (`vim`, `top`, installers, shells).
@@ -560,7 +611,7 @@ Keep routing logic out of model context whenever possible.
 
 **Response**
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"session_id":"s_1","protocol":"rexd/1","server_version":"0.1.0","capabilities":["exec","fs","events"],"limits":{"default_timeout_ms":30000,"max_output_bytes":1048576},"workspace_roots":["/srv/myapp"]}}
+{"jsonrpc":"2.0","id":1,"result":{"session_id":"s_1","protocol":"rexd/1","server_version":"0.1.3","capabilities":["exec","fs","events"],"limits":{"default_timeout_ms":30000,"max_output_bytes":1048576},"workspace_roots":["/srv/myapp"]}}
 ```
 
 ### 2) Start command
@@ -674,7 +725,7 @@ This keeps the protocol stable and the ecosystem flexible.
 ### Phase 1 (must-have)
 - `session.open/close/info`
 - `exec.start`, `exec.wait`, `exec.kill`
-- `fs.read`, `fs.write`, `fs.list`, `fs.glob`, `fs.stat`
+- `fs.read`, `fs.write`, `fs.list`, `fs.glob`, `fs.stat`, `fs.edit`, `fs.patch`
 - event notifications for stdout/stderr/exit
 - allowlisted roots + limits + audit
 - SSH stdio transport

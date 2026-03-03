@@ -5,22 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	execsvc "github.com/samiralibabic/rexd/internal/exec"
 	"github.com/samiralibabic/rexd/internal/audit"
 	"github.com/samiralibabic/rexd/internal/config"
 	"github.com/samiralibabic/rexd/internal/events"
+	execsvc "github.com/samiralibabic/rexd/internal/exec"
 	fssvc "github.com/samiralibabic/rexd/internal/fs"
 	"github.com/samiralibabic/rexd/internal/policy"
 	"github.com/samiralibabic/rexd/internal/protocol"
 	"github.com/samiralibabic/rexd/internal/session"
 )
 
-const ServerVersion = "0.1.0"
+const ServerVersion = "0.1.3"
 
 type Service struct {
 	cfg      config.Config
@@ -144,6 +145,18 @@ func (s *Service) Handle(ctx context.Context, req protocol.Request) protocol.Res
 			return s.errResp(id, err)
 		}
 		resp.Result = out
+	case "fs.edit":
+		out, err := s.fsEdit(req.Params)
+		if err != nil {
+			return s.errResp(id, err)
+		}
+		resp.Result = out
+	case "fs.patch":
+		out, err := s.fsPatch(req.Params)
+		if err != nil {
+			return s.errResp(id, err)
+		}
+		resp.Result = out
 	case "pty.open":
 		out, err := s.ptyOpen(ctx, req.Params)
 		if err != nil {
@@ -242,9 +255,9 @@ func (s *Service) sessionInfo(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return map[string]any{
-		"session_id":       sess.ID,
-		"cwd":              sess.CWD,
-		"workspace_roots":  sess.WorkspaceRoots,
+		"session_id":        sess.ID,
+		"cwd":               sess.CWD,
+		"workspace_roots":   sess.WorkspaceRoots,
 		"running_processes": sess.ProcessCount,
 		"limits": map[string]any{
 			"default_timeout_ms": s.cfg.Limits.DefaultTimeoutMs,
@@ -343,14 +356,14 @@ func (s *Service) execStart(ctx context.Context, raw json.RawMessage) (any, erro
 	processID := "p_" + fmt.Sprintf("%d", time.Now().UnixNano())
 	execCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMS)*time.Millisecond)
 	rp := &execsvc.RunningProcess{
-		ID:            processID,
-		SessionID:     sess.ID,
-		Cmd:           cmd,
-		Stdin:         stdin,
-		StartedAt:     time.Now().UTC(),
-		MaxOutput:     int64(maxOutput),
-		Detached:      p.Detach,
-		ExitCh:        make(chan execsvc.ProcessState, 1),
+		ID:        processID,
+		SessionID: sess.ID,
+		Cmd:       cmd,
+		Stdin:     stdin,
+		StartedAt: time.Now().UTC(),
+		MaxOutput: int64(maxOutput),
+		Detached:  p.Detach,
+		ExitCh:    make(chan execsvc.ProcessState, 1),
 	}
 	rp.CancelTimeout(cancel)
 	s.exec.Add(rp)
@@ -545,6 +558,138 @@ func (s *Service) fsStat(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return s.fs.Stat(abs)
+}
+
+func (s *Service) fsEdit(raw json.RawMessage) (any, error) {
+	p, err := decode[protocol.FSEditParams](raw)
+	if err != nil {
+		return nil, err
+	}
+	if p.Path == "" {
+		return nil, errors.New("path is required")
+	}
+	abs, err := s.resolveSessionPath(p.SessionID, p.Path)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.fs.Edit(abs, p.OldString, p.NewString, p.ReplaceAll, p.ExpectedMTime)
+	if err != nil {
+		return nil, err
+	}
+	return protocol.FSEditResult{
+		Path:         abs,
+		BytesWritten: result["bytes_written"].(int),
+		MTime:        result["mtime"].(int64),
+		Created:      result["created"].(bool),
+		Replacements: result["replacements"].(int),
+	}, nil
+}
+
+func (s *Service) fsPatch(raw json.RawMessage) (any, error) {
+	p, err := decode[protocol.FSPatchParams](raw)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.PatchText) == "" {
+		return nil, errors.New("patch_text is required")
+	}
+
+	sess, err := s.sessions.Get(p.SessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	cwd := sess.CWD
+	if p.Cwd != "" {
+		cwd, err = s.policy.ResolvePath(sess.CWD, p.Cwd)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	hunks, err := fssvc.ParsePatch(p.PatchText)
+	if err != nil {
+		return nil, err
+	}
+
+	result := protocol.FSPatchResult{
+		Added:   []string{},
+		Updated: []string{},
+		Deleted: []string{},
+		Moved:   []protocol.FSPatchMove{},
+	}
+
+	for _, hunk := range hunks {
+		absPath, err := s.policy.ResolvePath(cwd, hunk.Path)
+		if err != nil {
+			return nil, err
+		}
+
+		switch hunk.Type {
+		case "add":
+			content := hunk.Contents
+			if content != "" && !strings.HasSuffix(content, "\n") {
+				content += "\n"
+			}
+			if _, err := s.fs.Write(absPath, []byte(content), "create", true, false, 0); err != nil {
+				return nil, err
+			}
+			result.Added = append(result.Added, absPath)
+
+		case "delete":
+			if _, err := os.Stat(absPath); err != nil {
+				return nil, err
+			}
+			if err := os.Remove(absPath); err != nil {
+				return nil, err
+			}
+			result.Deleted = append(result.Deleted, absPath)
+
+		case "update":
+			original, err := os.ReadFile(absPath)
+			if err != nil {
+				return nil, err
+			}
+			nextContent := string(original)
+			if len(hunk.Chunks) > 0 {
+				nextContent, err = fssvc.DerivePatchedContent(string(original), hunk.Chunks)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			if hunk.MovePath != "" {
+				movePath, err := s.policy.ResolvePath(cwd, hunk.MovePath)
+				if err != nil {
+					return nil, err
+				}
+				if _, err := s.fs.Write(movePath, []byte(nextContent), "replace", true, true, 0); err != nil {
+					return nil, err
+				}
+
+				if movePath == absPath {
+					result.Updated = append(result.Updated, absPath)
+					continue
+				}
+
+				if err := os.Remove(absPath); err != nil {
+					return nil, err
+				}
+				result.Moved = append(result.Moved, protocol.FSPatchMove{From: absPath, To: movePath})
+				continue
+			}
+
+			if _, err := s.fs.Write(absPath, []byte(nextContent), "replace", true, true, 0); err != nil {
+				return nil, err
+			}
+			result.Updated = append(result.Updated, absPath)
+
+		default:
+			return nil, fmt.Errorf("unsupported patch hunk type %q", hunk.Type)
+		}
+	}
+
+	return result, nil
 }
 
 func (s *Service) ptyOpen(ctx context.Context, raw json.RawMessage) (any, error) {

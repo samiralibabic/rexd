@@ -111,6 +111,41 @@ type FSStatParams struct {
 	Path      string `json:"path"`
 }
 
+type FSEditParams struct {
+	SessionID     string `json:"session_id"`
+	Path          string `json:"path"`
+	OldString     string `json:"old_string"`
+	NewString     string `json:"new_string"`
+	ReplaceAll    bool   `json:"replace_all,omitempty"`
+	ExpectedMTime int64  `json:"expected_mtime,omitempty"`
+}
+
+type FSEditResult struct {
+	Path         string `json:"path"`
+	BytesWritten int    `json:"bytes_written"`
+	MTime        int64  `json:"mtime"`
+	Created      bool   `json:"created"`
+	Replacements int    `json:"replacements"`
+}
+
+type FSPatchParams struct {
+	SessionID string `json:"session_id"`
+	PatchText string `json:"patch_text"`
+	Cwd       string `json:"cwd,omitempty"`
+}
+
+type FSPatchMove struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type FSPatchResult struct {
+	Added   []string      `json:"added"`
+	Updated []string      `json:"updated"`
+	Deleted []string      `json:"deleted"`
+	Moved   []FSPatchMove `json:"moved,omitempty"`
+}
+
 type PTYOpenParams struct {
 	SessionID string            `json:"session_id"`
 	Argv      []string          `json:"argv,omitempty"`

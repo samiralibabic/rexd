@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -142,6 +144,138 @@ func TestStdioExecStartAndExitEvent(t *testing.T) {
 				gotExit = true
 			}
 		}
+	}
+}
+
+func TestStdioFSEditAndPatchFlow(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Default()
+	cfg.Security.AllowedRoot = []config.AllowedRoot{{Path: tmp}}
+	svc, err := server.NewService(cfg)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	client, srv := net.Pipe()
+	defer client.Close()
+	go func() {
+		_ = server.RunStdio(context.Background(), svc, srv, srv)
+	}()
+
+	enc := json.NewEncoder(client)
+	dec := bufio.NewReader(client)
+
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "session.open",
+		"params": map[string]any{
+			"client_name":     "test-client",
+			"workspace_roots": []string{tmp},
+		},
+	}); err != nil {
+		t.Fatalf("encode session.open: %v", err)
+	}
+
+	var line map[string]any
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read session.open response: %v", err)
+	}
+	sessionID := line["result"].(map[string]any)["session_id"].(string)
+
+	target := filepath.Join(tmp, "edit-target.txt")
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "fs.write",
+		"params": map[string]any{
+			"session_id":    sessionID,
+			"path":          target,
+			"content":       "hello\nworld\n",
+			"encoding":      "utf8",
+			"mode":          "replace",
+			"mkdir_parents": true,
+		},
+	}); err != nil {
+		t.Fatalf("encode fs.write: %v", err)
+	}
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read fs.write response: %v", err)
+	}
+
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "fs.edit",
+		"params": map[string]any{
+			"session_id": sessionID,
+			"path":       target,
+			"old_string": "world",
+			"new_string": "earth",
+		},
+	}); err != nil {
+		t.Fatalf("encode fs.edit: %v", err)
+	}
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read fs.edit response: %v", err)
+	}
+
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      4,
+		"method":  "fs.read",
+		"params": map[string]any{
+			"session_id": sessionID,
+			"path":       target,
+		},
+	}); err != nil {
+		t.Fatalf("encode fs.read: %v", err)
+	}
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read fs.read response: %v", err)
+	}
+	if got := line["result"].(map[string]any)["content"].(string); got != "hello\nearth\n" {
+		t.Fatalf("unexpected edit content: %q", got)
+	}
+
+	deletePath := filepath.Join(tmp, "delete-me.txt")
+	if err := os.WriteFile(deletePath, []byte("remove me\n"), 0644); err != nil {
+		t.Fatalf("seed delete file: %v", err)
+	}
+	addedPath := filepath.Join(tmp, "added-from-patch.txt")
+	patchText := fmt.Sprintf("*** Begin Patch\n*** Update File: %s\n@@\n-earth\n+patched\n*** Add File: %s\n+created from patch\n*** Delete File: %s\n*** End Patch", target, addedPath, deletePath)
+
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      5,
+		"method":  "fs.patch",
+		"params": map[string]any{
+			"session_id": sessionID,
+			"patch_text": patchText,
+		},
+	}); err != nil {
+		t.Fatalf("encode fs.patch: %v", err)
+	}
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read fs.patch response: %v", err)
+	}
+	if line["error"] != nil {
+		t.Fatalf("fs.patch returned error: %+v", line["error"])
+	}
+
+	updatedContent, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read updated target: %v", err)
+	}
+	if string(updatedContent) != "hello\npatched\n" {
+		t.Fatalf("unexpected patched content: %q", string(updatedContent))
+	}
+
+	if _, err := os.Stat(addedPath); err != nil {
+		t.Fatalf("expected added file to exist: %v", err)
+	}
+	if _, err := os.Stat(deletePath); !os.IsNotExist(err) {
+		t.Fatalf("expected delete target to be removed, got err=%v", err)
 	}
 }
 
