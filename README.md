@@ -4,6 +4,10 @@
 
 Protocol spec: `docs/spec/rexd_v1_protocol.md`
 
+## Available plugins
+
+- [opencode-rexd-target](https://github.com/samiralibabic/opencode-rexd-target): OpenCode plugin for routing tools to remote REXD targets.
+
 ## Features
 
 - JSON-RPC 2.0 over NDJSON stdio (`rexd --stdio`)
