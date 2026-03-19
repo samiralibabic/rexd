@@ -116,6 +116,11 @@ Start command:
 {"jsonrpc":"2.0","id":2,"method":"exec.start","params":{"session_id":"s_1","argv":["git","status","--short"],"cwd":"/srv/myapp"}}
 ```
 
+Shell mode notes:
+
+- Non-PTY `exec.start` with `shell=true` defaults to non-login shell behavior for predictable automation.
+- Use `login=true` only for compatibility with legacy environments that require login-shell startup files.
+
 Read file:
 
 ```json

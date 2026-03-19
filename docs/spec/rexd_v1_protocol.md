@@ -160,6 +160,8 @@ Start a command (non-PTY) and stream output via events.
 - `max_output_bytes` (integer, optional)
 - `shell` (boolean, optional, default `false`)
   If `true`, interpret `command` via shell.
+- `login` (boolean, optional, default `false`)
+  Only used when `shell=true`. If `true`, run the shell as a login shell for compatibility.
 - `command` (string, optional; required only when `shell=true`)
 - `detach` (boolean, optional, default `false`)
 
@@ -176,6 +178,8 @@ Start a command (non-PTY) and stream output via events.
 #### Notes
 - `argv` and `shell=false` should be the default for safety.
 - `shell=true` is explicit and auditable.
+- For automation, `shell=true` defaults to non-login shell behavior.
+- Set `login=true` only for legacy environments that require login-shell startup files.
 
 ---
 

@@ -313,7 +313,11 @@ func (s *Service) execStart(ctx context.Context, raw json.RawMessage) (any, erro
 		if p.Command == "" {
 			return nil, errors.New("command required when shell=true")
 		}
-		cmd = exec.CommandContext(ctx, "sh", "-lc", p.Command)
+		if p.Login {
+			cmd = exec.CommandContext(ctx, "sh", "-lc", p.Command)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", p.Command)
+		}
 	} else {
 		if len(p.Argv) == 0 {
 			return nil, errors.New("argv is required")

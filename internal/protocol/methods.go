@@ -33,6 +33,7 @@ type ExecStartParams struct {
 	TimeoutMS      int               `json:"timeout_ms,omitempty"`
 	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
 	Shell          bool              `json:"shell,omitempty"`
+	Login          bool              `json:"login,omitempty"`
 	Command        string            `json:"command,omitempty"`
 	Detach         bool              `json:"detach,omitempty"`
 }

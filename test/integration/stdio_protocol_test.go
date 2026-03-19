@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +145,93 @@ func TestStdioExecStartAndExitEvent(t *testing.T) {
 				gotExit = true
 			}
 		}
+	}
+}
+
+func TestStdioExecStartShellDefaultsToNonLogin(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	profilePath := filepath.Join(home, ".profile")
+	if err := os.WriteFile(profilePath, []byte("export REXD_LOGIN_MARKER=from_profile\n"), 0644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Security.AllowedRoot = []config.AllowedRoot{{Path: tmp}}
+	svc, err := server.NewService(cfg)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	client, srv := net.Pipe()
+	defer client.Close()
+	go func() {
+		_ = server.RunStdio(context.Background(), svc, srv, srv)
+	}()
+
+	enc := json.NewEncoder(client)
+	dec := bufio.NewReader(client)
+	sessionID := openSession(t, enc, dec, tmp)
+
+	stdout := runExecAndCollectStdout(t, enc, dec, map[string]any{
+		"session_id": sessionID,
+		"shell":      true,
+		"command":    "printf %s \"${REXD_LOGIN_MARKER:-missing}\"",
+		"cwd":        tmp,
+		"env": map[string]any{
+			"HOME": home,
+		},
+	})
+
+	if stdout != "missing" {
+		t.Fatalf("expected non-login shell to skip profile marker, got %q", stdout)
+	}
+}
+
+func TestStdioExecStartShellLoginCompatibility(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	profilePath := filepath.Join(home, ".profile")
+	if err := os.WriteFile(profilePath, []byte("export REXD_LOGIN_MARKER=from_profile\n"), 0644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Security.AllowedRoot = []config.AllowedRoot{{Path: tmp}}
+	svc, err := server.NewService(cfg)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	client, srv := net.Pipe()
+	defer client.Close()
+	go func() {
+		_ = server.RunStdio(context.Background(), svc, srv, srv)
+	}()
+
+	enc := json.NewEncoder(client)
+	dec := bufio.NewReader(client)
+	sessionID := openSession(t, enc, dec, tmp)
+
+	stdout := runExecAndCollectStdout(t, enc, dec, map[string]any{
+		"session_id": sessionID,
+		"shell":      true,
+		"login":      true,
+		"command":    "printf %s \"${REXD_LOGIN_MARKER:-missing}\"",
+		"cwd":        tmp,
+		"env": map[string]any{
+			"HOME": home,
+		},
+	})
+
+	if stdout != "from_profile" {
+		t.Fatalf("expected login shell to load profile marker, got %q", stdout)
 	}
 }
 
@@ -285,4 +373,69 @@ func readLine(reader *bufio.Reader, out any) error {
 		return err
 	}
 	return json.Unmarshal(raw, out)
+}
+
+func openSession(t *testing.T, enc *json.Encoder, dec *bufio.Reader, workspaceRoot string) string {
+	t.Helper()
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "session.open",
+		"params": map[string]any{
+			"client_name":     "test-client",
+			"workspace_roots": []string{workspaceRoot},
+		},
+	}); err != nil {
+		t.Fatalf("encode session.open: %v", err)
+	}
+	var line map[string]any
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read session.open response: %v", err)
+	}
+	result := line["result"].(map[string]any)
+	return result["session_id"].(string)
+}
+
+func runExecAndCollectStdout(t *testing.T, enc *json.Encoder, dec *bufio.Reader, params map[string]any) string {
+	t.Helper()
+	if err := enc.Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "exec.start",
+		"params":  params,
+	}); err != nil {
+		t.Fatalf("encode exec.start: %v", err)
+	}
+
+	var line map[string]any
+	if err := readLine(dec, &line); err != nil {
+		t.Fatalf("read exec.start response: %v", err)
+	}
+	if line["error"] != nil {
+		t.Fatalf("exec.start returned error: %+v", line["error"])
+	}
+
+	var stdout strings.Builder
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("timed out waiting for exec.exit")
+		default:
+			var notif protocol.Notification
+			if err := readLine(dec, &notif); err != nil {
+				t.Fatalf("read event: %v", err)
+			}
+			if notif.Method == "exec.stdout" {
+				if paramsMap, ok := notif.Params.(map[string]any); ok {
+					if data, ok := paramsMap["data"].(string); ok {
+						stdout.WriteString(data)
+					}
+				}
+			}
+			if notif.Method == "exec.exit" {
+				return strings.TrimSpace(stdout.String())
+			}
+		}
+	}
 }
