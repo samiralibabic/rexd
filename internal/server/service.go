@@ -21,7 +21,7 @@ import (
 	"github.com/samiralibabic/rexd/internal/session"
 )
 
-const ServerVersion = "0.1.3"
+const ServerVersion = "0.1.4"
 
 type Service struct {
 	cfg      config.Config

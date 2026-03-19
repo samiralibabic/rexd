@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/ins
 Pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_VERSION=v0.1.3 bash
+curl -fsSL https://raw.githubusercontent.com/samiralibabic/rexd/main/scripts/install.sh | REXD_VERSION=v0.1.4 bash
 ```
 
 Custom install dir:

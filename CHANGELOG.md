@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.4 - 2026-03-19
 
 - Change non-PTY `exec.start` shell default to non-login mode (`sh -c`) for predictable automation.
 - Add optional `login` flag to `exec.start`; `login=true` uses login-shell mode (`sh -lc`) for legacy compatibility.
